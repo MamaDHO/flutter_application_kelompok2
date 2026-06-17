@@ -1,10 +1,10 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
+import 'package:flutter/foundation.dart' show kIsWeb; // Wajib untuk cek Web
 
 class ApiService {
-  // Ganti dengan IP komputer saat pakai HP fisik, atau 10.0.2.2 untuk emulator Android
-  static const String baseUrl = 'http://localhost:8000/api';
+  static const String baseUrl = 'http://127.0.0.1:8000/api'; // Sesuaikan port Laravel-mu
 
   // ── GET semua resep (dengan filter opsional) ──────────────────────────────
   static Future<List<Map<String, dynamic>>> getResep({
@@ -25,8 +25,7 @@ class ApiService {
     throw Exception('Gagal memuat resep');
   }
 
-  // ── POST resep baru (multipart dengan gambar) ─────────────────────────────
-  static Future<Map<String, dynamic>> createResep({
+  static Future<void> createResep({
     required String nama,
     required String pembuat,
     required String waktu,
@@ -35,19 +34,19 @@ class ApiService {
     String? videoUrl,
     required List<String> bahan,
     required List<String> langkah,
-    List<File> gambars = const [],
+    required List<XFile> gambars,
   }) async {
-    final uri = Uri.parse('$baseUrl/resep');
-    final request = http.MultipartRequest('POST', uri);
+    var request = http.MultipartRequest('POST', Uri.parse('$baseUrl/resep'));
 
-    request.fields['nama']      = nama;
-    request.fields['pembuat']   = pembuat;
-    request.fields['waktu']     = waktu;
+    // 1. Masukkan data teks biasa
+    request.fields['nama'] = nama;
+    request.fields['pembuat'] = pembuat;
+    request.fields['waktu'] = waktu;
     request.fields['kesulitan'] = kesulitan;
-    request.fields['kategori']  = kategori;
+    request.fields['kategori'] = kategori;
     if (videoUrl != null) request.fields['video_url'] = videoUrl;
 
-    // Array fields untuk Laravel: bahan[0], bahan[1], ...
+    // 2. Masukkan data Array (Laravel membaca array di form-data melalui indeks)
     for (int i = 0; i < bahan.length; i++) {
       request.fields['bahan[$i]'] = bahan[i];
     }
@@ -55,21 +54,38 @@ class ApiService {
       request.fields['langkah[$i]'] = langkah[i];
     }
 
-    // Upload file gambar
+    // 3. Masukkan File Gambar (Kompatibel untuk Web & Mobile)
     for (int i = 0; i < gambars.length; i++) {
-      request.files.add(await http.MultipartFile.fromPath(
-        'gambars[$i]',
-        gambars[i].path,
-      ));
+      final file = gambars[i];
+      if (kIsWeb) {
+        // Jika di jalankan di Chrome/Web, WAJIB pakai bytes
+        final bytes = await file.readAsBytes();
+        request.files.add(http.MultipartFile.fromBytes(
+          'gambars[$i]', // Sesuai aturan validasi Laravel 'gambars.*'
+          bytes,
+          filename: file.name,
+        ));
+      } else {
+        // Jika di jalankan di Emulator Android / Device fisik
+        request.files.add(await http.MultipartFile.fromPath(
+          'gambars[$i]',
+          file.path,
+        ));
+      }
     }
 
-    final streamed = await request.send();
-    final response = await http.Response.fromStream(streamed);
+    // 4. Tambahkan header Accept agar error dari Laravel terbaca format JSON
+    request.headers.addAll({'Accept': 'application/json'});
 
-    if (response.statusCode == 201) {
-      return jsonDecode(response.body)['data'];
+    // 5. Kirim Request
+    var response = await request.send();
+    var responseData = await response.stream.bytesToString();
+
+    // 6. Cek Hasil
+    if (response.statusCode != 201 && response.statusCode != 200) {
+      print("Error API: ${response.statusCode} - $responseData");
+      throw Exception('Gagal menyimpan resep');
     }
-    throw Exception('Gagal menyimpan resep: ${response.body}');
   }
 
   // ── POST rating ───────────────────────────────────────────────────────────

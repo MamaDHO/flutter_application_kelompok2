@@ -1252,7 +1252,8 @@ class _TambahResepPageState extends State<TambahResepPage> {
         videoUrl:  _videoCtrl.text.trim().isEmpty ? null : _videoCtrl.text.trim(),
         bahan:     _bahanCtrls.map((c) => c.text.trim()).where((s) => s.isNotEmpty).toList(),
         langkah:   _langkahCtrls.map((c) => c.text.trim()).where((s) => s.isNotEmpty).toList(),
-        gambars:   _selectedImages.map((x) => File(x.path)).toList(),
+        // UBAH BARIS INI: Langsung kirim _selectedImages (List<XFile>)
+        gambars:   _selectedImages, 
       );
       widget.onSave(); // trigger reload di Beranda
       if (mounted) {
