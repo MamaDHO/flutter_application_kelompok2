@@ -843,7 +843,7 @@ class _DetailResepApiState extends State<DetailResepApi> {
     final imageUrls = gambars.map((g) => g['url'].toString()).toList();
     final bahan    = (d['bahan']   as List?) ?? [];
     final langkah  = (d['langkah'] as List?) ?? [];
-    final videoUrl = d['video_url'] as String?;
+    final videoUrl = d['video_url'] as String?? null;
 
     return Scaffold(
       appBar: AppBar(title: Text(d['nama'] ?? '')),
