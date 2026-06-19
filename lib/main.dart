@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'services/api_service.dart';
+import 'screens/login_page.dart';
 
 void main() {
   runApp(const DapurKitaApp());
@@ -159,7 +160,6 @@ class AppLanguage extends ChangeNotifier {
 
 final AppLanguage appLanguage = AppLanguage();
 
-// ─── APP ROOT ─────────────────────────────────────────────────────────────────
 class DapurKitaApp extends StatefulWidget {
   const DapurKitaApp({Key? key}) : super(key: key);
 
@@ -193,7 +193,38 @@ class _DapurKitaAppState extends State<DapurKitaApp> {
           ),
         ),
       ),
-      home: const MainScaffold(),
+      // 🌟 Menggunakan Routes untuk navigasi 🌟
+      initialRoute: '/',
+      routes: {
+        '/': (context) => const AuthGate(),
+        '/home': (context) => const MainScaffold(),
+        '/login': (context) => const LoginPage(),
+        '/logout': (context) => const AuthGate(),
+      },
+    );
+  }
+}
+
+// ─── Pintu Gerbang (AuthGate) ────────────────────────────────────────────────
+// Ini bertugas mengecek token setiap kali aplikasi dibuka dari rute '/'
+class AuthGate extends StatelessWidget {
+  const AuthGate({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<String?>(
+      future: ApiService.getToken(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(body: Center(child: CircularProgressIndicator(color: Colors.orange)));
+        }
+        
+        // Jika token ada, arahkan ke /home, jika tidak ke /login
+        if (snapshot.hasData && snapshot.data != null) {
+          return const MainScaffold();
+        }
+        return const LoginPage();
+      },
     );
   }
 }
@@ -1621,58 +1652,86 @@ class _HalamanSettingsState extends State<HalamanSettings> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(appLanguage.t('settings'))),
-      body: ListView(children: [
-        const SizedBox(height: 12),
-        _sec(appLanguage.t('language')),
-        RadioListTile<String>(
-          title: const Text('🇮🇩  Bahasa Indonesia'),
-          value: 'id', groupValue: appLanguage.locale,
-          activeColor: Colors.orange, onChanged: (v) => appLanguage.setLocale(v!),
-        ),
-        RadioListTile<String>(
-          title: const Text('🇬🇧  English'),
-          value: 'en', groupValue: appLanguage.locale,
-          activeColor: Colors.orange, onChanged: (v) => appLanguage.setLocale(v!),
-        ),
-        const Divider(),
-        _sec('Notifikasi'),
-        SwitchListTile(
-          title: const Text('Notifikasi Resep Baru'),
-          subtitle: const Text('Dapatkan pemberitahuan resep terbaru'),
-          value: _notifResep, activeColor: Colors.orange,
-          onChanged: (v) => setState(() => _notifResep = v),
-        ),
-        SwitchListTile(
-          title: const Text('Notifikasi Komentar'),
-          subtitle: const Text('Pemberitahuan komentar pada resepmu'),
-          value: _notifKomen, activeColor: Colors.orange,
-          onChanged: (v) => setState(() => _notifKomen = v),
-        ),
-        const Divider(),
-        _sec(appLanguage.t('about')),
-        ListTile(
-          leading: const Icon(Icons.info_outline, color: Colors.orange),
-          title: Text(appLanguage.t('app_title')),
-          subtitle: Text(appLanguage.t('version')),
-        ),
-        ListTile(
-          leading: const Icon(Icons.privacy_tip_outlined, color: Colors.orange),
-          title: const Text('Kebijakan Privasi'),
-          trailing: const Icon(Icons.chevron_right), onTap: () {},
-        ),
-        ListTile(
-          leading: const Icon(Icons.description_outlined, color: Colors.orange),
-          title: const Text('Syarat & Ketentuan'),
-          trailing: const Icon(Icons.chevron_right), onTap: () {},
-        ),
-      ]),
+      body: ListView(
+        children: [
+          const SizedBox(height: 12),
+          _sec(appLanguage.t('language')),
+          RadioListTile<String>(
+            title: const Text('🇮🇩  Bahasa Indonesia'),
+            value: 'id',
+            groupValue: appLanguage.locale,
+            activeColor: Colors.orange,
+            onChanged: (v) => appLanguage.setLocale(v!),
+          ),
+          RadioListTile<String>(
+            title: const Text('🇬🇧  English'),
+            value: 'en',
+            groupValue: appLanguage.locale,
+            activeColor: Colors.orange,
+            onChanged: (v) => appLanguage.setLocale(v!),
+          ),
+          const Divider(),
+          _sec('Notifikasi'),
+          SwitchListTile(
+            title: const Text('Notifikasi Resep Baru'),
+            subtitle: const Text('Dapatkan pemberitahuan resep terbaru'),
+            value: _notifResep,
+            activeColor: Colors.orange,
+            onChanged: (v) => setState(() => _notifResep = v),
+          ),
+          SwitchListTile(
+            title: const Text('Notifikasi Komentar'),
+            subtitle: const Text('Pemberitahuan komentar pada resepmu'),
+            value: _notifKomen,
+            activeColor: Colors.orange,
+            onChanged: (v) => setState(() => _notifKomen = v),
+          ),
+          const Divider(),
+          _sec(appLanguage.t('about')),
+          ListTile(
+            leading: const Icon(Icons.info_outline, color: Colors.orange),
+            title: Text(appLanguage.t('app_title')),
+            subtitle: Text(appLanguage.t('version')),
+          ),
+          ListTile(
+            leading: const Icon(Icons.privacy_tip_outlined, color: Colors.orange),
+            title: const Text('Kebijakan Privasi'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {},
+          ),
+          ListTile(
+            leading: const Icon(Icons.description_outlined, color: Colors.orange),
+            title: const Text('Syarat & Ketentuan'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {},
+          ),
+          const Divider(),
+          // ── Tombol Logout ──
+          ListTile(
+            leading: const Icon(Icons.logout, color: Colors.red),
+            title: const Text('Keluar (Logout)', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+            onTap: () async {
+              // 1. Hapus token dari memori HP
+              await ApiService.hapusToken();
+              
+              // 2. Arahkan balik ke halaman login dan hapus riwayat navigasi
+              if (mounted) {
+                Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
+              }
+            },
+          ),
+        ],
+      ),
     );
   }
 
   Widget _sec(String label) => Padding(
-    padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-    child: Text(label, style: const TextStyle(
-        color: Colors.orange, fontWeight: FontWeight.bold,
-        fontSize: 13, letterSpacing: 0.5)),
-  );
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+        child: Text(label,
+            style: const TextStyle(
+                color: Colors.orange,
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                letterSpacing: 0.5)),
+      );
 }
