@@ -7,7 +7,7 @@
 //    http: ^1.2.1
 // ============================================================
 
-import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -39,7 +39,6 @@ class AppLanguage extends ChangeNotifier {
       'popular_recipes': 'Resep Populer 🔥',
       'recipe_not_found': 'Resep tidak ditemukan.',
       'home': 'Beranda',
-      'favorites': 'Favorit',
       'profile': 'Profil',
       'add_recipe': 'Tambah Resep',
       'ingredients': 'Bahan-bahan',
@@ -102,7 +101,6 @@ class AppLanguage extends ChangeNotifier {
       'popular_recipes': 'Popular Recipes 🔥',
       'recipe_not_found': 'No recipes found.',
       'home': 'Home',
-      'favorites': 'Favorites',
       'profile': 'Profile',
       'add_recipe': 'Add Recipe',
       'ingredients': 'Ingredients',
@@ -221,7 +219,6 @@ class _MainScaffoldState extends State<MainScaffold> {
   Widget build(BuildContext context) {
     final pages = [
       const Beranda(),
-      const HalamanFavorit(),
       const HalamanProfil(),
       const HalamanSettings(),
     ];
@@ -235,7 +232,6 @@ class _MainScaffoldState extends State<MainScaffold> {
         onTap: (i) => setState(() => _selectedIndex = i),
         items: [
           BottomNavigationBarItem(icon: const Icon(Icons.home), label: appLanguage.t('home')),
-          BottomNavigationBarItem(icon: const Icon(Icons.favorite_border), label: appLanguage.t('favorites')),
           BottomNavigationBarItem(icon: const Icon(Icons.person_outline), label: appLanguage.t('profile')),
           BottomNavigationBarItem(icon: const Icon(Icons.settings_outlined), label: appLanguage.t('settings')),
         ],
@@ -317,6 +313,7 @@ class _BerandaState extends State<Beranda> {
           ),
         ),
         backgroundColor: Colors.orange,
+        foregroundColor: Colors.white,
         icon:  const Icon(Icons.add),
         label: Text(appLanguage.t('add_recipe')),
       ),
@@ -843,7 +840,7 @@ class _DetailResepApiState extends State<DetailResepApi> {
     final imageUrls = gambars.map((g) => g['url'].toString()).toList();
     final bahan    = (d['bahan']   as List?) ?? [];
     final langkah  = (d['langkah'] as List?) ?? [];
-    final videoUrl = d['video_url'] as String?? null;
+    final videoUrl = d['video_url'] as String?;
 
     return Scaffold(
       appBar: AppBar(title: Text(d['nama'] ?? '')),
@@ -1152,6 +1149,62 @@ class _KomentarItem extends StatelessWidget {
   }
 }
 
+// ─── THUMBNAIL GAMBAR LOKAL (web-safe) ────────────────────────────────────────
+// Image.file() TIDAK didukung di Flutter Web karena dart:io tidak punya akses
+// filesystem di browser. Widget ini membaca XFile sebagai bytes lalu
+// menampilkannya dengan Image.memory(), yang berjalan di semua platform
+// (Web, Android, iOS, Desktop) tanpa error.
+class XFileThumbnail extends StatelessWidget {
+  final XFile file;
+  final double width;
+  final double height;
+  final BorderRadius? borderRadius;
+
+  const XFileThumbnail({
+    Key? key,
+    required this.file,
+    this.width = 100,
+    this.height = 100,
+    this.borderRadius,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Uint8List>(
+      future: file.readAsBytes(),
+      builder: (context, snapshot) {
+        Widget child;
+        if (snapshot.connectionState != ConnectionState.done) {
+          child = Container(
+            width: width, height: height,
+            color: Colors.grey[200],
+            child: const Center(
+              child: SizedBox(
+                width: 20, height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.orange),
+              ),
+            ),
+          );
+        } else if (snapshot.hasError || !snapshot.hasData) {
+          child = Container(
+            width: width, height: height,
+            color: Colors.grey[300],
+            child: const Icon(Icons.broken_image, color: Colors.grey),
+          );
+        } else {
+          child = Image.memory(
+            snapshot.data!,
+            width: width, height: height, fit: BoxFit.cover,
+          );
+        }
+        return borderRadius != null
+            ? ClipRRect(borderRadius: borderRadius!, child: child)
+            : child;
+      },
+    );
+  }
+}
+
 // ─── TAMBAH RESEP (kirim ke API) ──────────────────────────────────────────────
 class TambahResepPage extends StatefulWidget {
   final VoidCallback onSave; // ← cukup callback tanpa parameter, trigger reload
@@ -1252,8 +1305,7 @@ class _TambahResepPageState extends State<TambahResepPage> {
         videoUrl:  _videoCtrl.text.trim().isEmpty ? null : _videoCtrl.text.trim(),
         bahan:     _bahanCtrls.map((c) => c.text.trim()).where((s) => s.isNotEmpty).toList(),
         langkah:   _langkahCtrls.map((c) => c.text.trim()).where((s) => s.isNotEmpty).toList(),
-        // UBAH BARIS INI: Langsung kirim _selectedImages (List<XFile>)
-        gambars:   _selectedImages, 
+        gambars:   _selectedImages, // ← List<XFile>, web-safe
       );
       widget.onSave(); // trigger reload di Beranda
       if (mounted) {
@@ -1345,9 +1397,10 @@ class _TambahResepPageState extends State<TambahResepPage> {
                       Container(
                         margin: const EdgeInsets.only(right: 10),
                         width: 100, height: 100,
-                        child: ClipRRect(
+                        child: XFileThumbnail(
+                          file: e.value,
+                          width: 100, height: 100,
                           borderRadius: BorderRadius.circular(12),
-                          child: Image.file(File(e.value.path), fit: BoxFit.cover),
                         ),
                       ),
                       Positioned(
@@ -1531,18 +1584,7 @@ class _TambahResepPageState extends State<TambahResepPage> {
 }
 
 // ─── PLACEHOLDER PAGES ────────────────────────────────────────────────────────
-class HalamanFavorit extends StatelessWidget {
-  const HalamanFavorit({Key? key}) : super(key: key);
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text(appLanguage.t('favorites'))),
-    body: Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-      Icon(Icons.favorite_border, size: 80, color: Colors.grey[300]),
-      const SizedBox(height: 16),
-      Text('Fitur segera hadir!', style: TextStyle(color: Colors.grey[400], fontSize: 16)),
-    ])),
-  );
-}
+
 
 class HalamanProfil extends StatelessWidget {
   const HalamanProfil({Key? key}) : super(key: key);

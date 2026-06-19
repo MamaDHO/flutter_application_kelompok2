@@ -1,10 +1,25 @@
+// ============================================================
+//  lib/services/api_service.dart
+//
+//  Catatan penting soal upload gambar:
+//  Flutter Web TIDAK mendukung dart:io (File, File.openRead, dll).
+//  Karena itu http.MultipartFile.fromPath() — yang membaca lewat
+//  dart:io di balik layar — akan GAGAL di web.
+//
+//  Solusi: gunakan XFile.readAsBytes() (cross-platform, jalan di
+//  Web/Android/iOS/Desktop) lalu kirim dengan
+//  http.MultipartFile.fromBytes(), yang aman untuk semua platform.
+// ============================================================
+
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
-import 'package:flutter/foundation.dart' show kIsWeb; // Wajib untuk cek Web
 
 class ApiService {
-  static const String baseUrl = 'http://127.0.0.1:8000/api'; // Sesuaikan port Laravel-mu
+  // Emulator Android : http://10.0.2.2:8000/api
+  // Emulator iOS/Web  : http://127.0.0.1:8000/api atau http://localhost:8000/api
+  // HP fisik          : http://<IP-LAPTOP-KAMU>:8000/api
+  static const String baseUrl = 'http://127.0.0.1:8000/api';
 
   // ── GET semua resep (dengan filter opsional) ──────────────────────────────
   static Future<List<Map<String, dynamic>>> getResep({
@@ -22,10 +37,11 @@ class ApiService {
       final body = jsonDecode(response.body);
       return List<Map<String, dynamic>>.from(body['data']);
     }
-    throw Exception('Gagal memuat resep');
+    throw Exception('Gagal memuat resep (${response.statusCode})');
   }
 
-  static Future<void> createResep({
+  // ── POST resep baru (multipart, web-safe) ─────────────────────────────────
+  static Future<Map<String, dynamic>> createResep({
     required String nama,
     required String pembuat,
     required String waktu,
@@ -34,19 +50,19 @@ class ApiService {
     String? videoUrl,
     required List<String> bahan,
     required List<String> langkah,
-    required List<XFile> gambars,
+    List<XFile> gambars = const [],
   }) async {
-    var request = http.MultipartRequest('POST', Uri.parse('$baseUrl/resep'));
+    final uri = Uri.parse('$baseUrl/resep');
+    final request = http.MultipartRequest('POST', uri);
 
-    // 1. Masukkan data teks biasa
-    request.fields['nama'] = nama;
-    request.fields['pembuat'] = pembuat;
-    request.fields['waktu'] = waktu;
+    request.fields['nama']      = nama;
+    request.fields['pembuat']   = pembuat;
+    request.fields['waktu']     = waktu;
     request.fields['kesulitan'] = kesulitan;
-    request.fields['kategori'] = kategori;
+    request.fields['kategori']  = kategori;
     if (videoUrl != null) request.fields['video_url'] = videoUrl;
 
-    // 2. Masukkan data Array (Laravel membaca array di form-data melalui indeks)
+    // Laravel butuh format array: bahan[0], bahan[1], dst.
     for (int i = 0; i < bahan.length; i++) {
       request.fields['bahan[$i]'] = bahan[i];
     }
@@ -54,53 +70,46 @@ class ApiService {
       request.fields['langkah[$i]'] = langkah[i];
     }
 
-    // 3. Masukkan File Gambar (Kompatibel untuk Web & Mobile)
+    // ── Upload gambar: baca sebagai bytes, BUKAN lewat path file ──
+    // Ini yang membuatnya jalan di Web sekaligus Mobile/Desktop.
     for (int i = 0; i < gambars.length; i++) {
-      final file = gambars[i];
-      if (kIsWeb) {
-        // Jika di jalankan di Chrome/Web, WAJIB pakai bytes
-        final bytes = await file.readAsBytes();
-        request.files.add(http.MultipartFile.fromBytes(
-          'gambars[$i]', // Sesuai aturan validasi Laravel 'gambars.*'
-          bytes,
-          filename: file.name,
-        ));
-      } else {
-        // Jika di jalankan di Emulator Android / Device fisik
-        request.files.add(await http.MultipartFile.fromPath(
+      final bytes = await gambars[i].readAsBytes();
+      request.files.add(
+        http.MultipartFile.fromBytes(
           'gambars[$i]',
-          file.path,
-        ));
-      }
+          bytes,
+          filename: gambars[i].name.isNotEmpty ? gambars[i].name : 'image_$i.jpg',
+        ),
+      );
     }
 
-    // 4. Tambahkan header Accept agar error dari Laravel terbaca format JSON
-    request.headers.addAll({'Accept': 'application/json'});
+    final streamed = await request.send();
+    final response  = await http.Response.fromStream(streamed);
 
-    // 5. Kirim Request
-    var response = await request.send();
-    var responseData = await response.stream.bytesToString();
-
-    // 6. Cek Hasil
-    if (response.statusCode != 201 && response.statusCode != 200) {
-      print("Error API: ${response.statusCode} - $responseData");
-      throw Exception('Gagal menyimpan resep');
+    if (response.statusCode == 201) {
+      return jsonDecode(response.body)['data'];
     }
+    throw Exception('Gagal menyimpan resep (${response.statusCode}): ${response.body}');
   }
 
-  // ── POST rating ───────────────────────────────────────────────────────────
+  // ── POST rating ─────────────────────────────────────────────────────────
   static Future<void> addRating(int resepId, int nilai) async {
     final response = await http.post(
       Uri.parse('$baseUrl/resep/$resepId/rating'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'nilai': nilai}),
     );
-    if (response.statusCode != 200) throw Exception('Gagal kirim rating');
+    if (response.statusCode != 200) {
+      throw Exception('Gagal kirim rating (${response.statusCode})');
+    }
   }
 
-  // ── POST komentar ─────────────────────────────────────────────────────────
+  // ── POST komentar ────────────────────────────────────────────────────────
   static Future<Map<String, dynamic>> addKomentar(
-      int resepId, String nama, String isi) async {
+    int resepId,
+    String nama,
+    String isi,
+  ) async {
     final response = await http.post(
       Uri.parse('$baseUrl/resep/$resepId/komentar'),
       headers: {'Content-Type': 'application/json'},
@@ -109,6 +118,6 @@ class ApiService {
     if (response.statusCode == 201) {
       return jsonDecode(response.body)['data'];
     }
-    throw Exception('Gagal kirim komentar');
+    throw Exception('Gagal kirim komentar (${response.statusCode})');
   }
 }
