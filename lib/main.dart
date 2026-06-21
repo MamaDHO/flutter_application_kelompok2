@@ -5,6 +5,7 @@
 //    image_picker: ^1.0.7
 //    url_launcher: ^6.2.5
 //    http: ^1.2.1
+//    shared_preferences: ^2.2.3
 // ============================================================
 
 import 'dart:typed_data';
@@ -32,12 +33,12 @@ class AppLanguage extends ChangeNotifier {
 
   static const Map<String, Map<String, String>> _translations = {
     'id': {
-      'app_title': 'DapurKita 🍳',
-      'hello_chef': 'Halo, Koki!',
-      'what_to_cook': 'Mau masak apa hari ini?',
+      'app_title': '🍳 DapurKita',
+      'hello_chef': 'Halo, Chef!',
+      'what_to_cook': 'Masak apa hari ini chef?',
       'search_hint': 'Cari resep favoritmu...',
       'category': 'Kategori',
-      'popular_recipes': 'Resep Populer 🔥',
+      'popular_recipes': 'Resep Populer',
       'recipe_not_found': 'Resep tidak ditemukan.',
       'home': 'Beranda',
       'profile': 'Profil',
@@ -94,12 +95,12 @@ class AppLanguage extends ChangeNotifier {
       'saving': 'Menyimpan...',
     },
     'en': {
-      'app_title': 'DapurKita 🍳',
+      'app_title': '🍳 DapurKita',
       'hello_chef': 'Hello, Chef!',
       'what_to_cook': 'What are we cooking today?',
       'search_hint': 'Search your favorite recipe...',
       'category': 'Category',
-      'popular_recipes': 'Popular Recipes 🔥',
+      'popular_recipes': 'Popular Recipes',
       'recipe_not_found': 'No recipes found.',
       'home': 'Home',
       'profile': 'Profile',
@@ -332,6 +333,14 @@ class _BerandaState extends State<Beranda> {
     return Scaffold(
       appBar: AppBar(
         title: Text(appLanguage.t('app_title')),
+        backgroundColor: Colors.orange,
+        iconTheme: const IconThemeData(color: Colors.white),        // ← override icon
+        actionsIconTheme: const IconThemeData(color: Colors.white), // ← override icon di actions
+        titleTextStyle: const TextStyle(                            // ← override teks judul
+          color: Colors.white,
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+        ),
         actions: [
           IconButton(icon: const Icon(Icons.notifications_none), onPressed: () {}),
         ],
@@ -1236,10 +1245,46 @@ class XFileThumbnail extends StatelessWidget {
   }
 }
 
-// ─── TAMBAH RESEP (kirim ke API) ──────────────────────────────────────────────
+// ─── THUMBNAIL BUNDAR UNTUK AVATAR (web-safe) ────────────────────────────────
+class XFileCircleAvatar extends StatelessWidget {
+  final XFile file;
+  final double radius;
+  const XFileCircleAvatar({Key? key, required this.file, this.radius = 48}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Uint8List>(
+      future: file.readAsBytes(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return CircleAvatar(
+            radius: radius,
+            backgroundColor: Colors.orange.shade100,
+            child: const SizedBox(
+              width: 24, height: 24,
+              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.orange),
+            ),
+          );
+        }
+        if (snapshot.hasError || !snapshot.hasData) {
+          return CircleAvatar(
+            radius: radius,
+            backgroundColor: Colors.orange,
+            child: Icon(Icons.person, size: radius, color: Colors.white),
+          );
+        }
+        return CircleAvatar(radius: radius, backgroundImage: MemoryImage(snapshot.data!));
+      },
+    );
+  }
+}
+
+// ─── TAMBAH / EDIT RESEP (kirim ke API) ───────────────────────────────────────
 class TambahResepPage extends StatefulWidget {
-  final VoidCallback onSave; // ← cukup callback tanpa parameter, trigger reload
-  const TambahResepPage({Key? key, required this.onSave}) : super(key: key);
+  final VoidCallback onSave;
+  // Jika null → mode TAMBAH. Jika diisi data resep → mode EDIT.
+  final Map<String, dynamic>? existingData;
+  const TambahResepPage({Key? key, required this.onSave, this.existingData}) : super(key: key);
 
   @override
   State<TambahResepPage> createState() => _TambahResepPageState();
@@ -1259,6 +1304,34 @@ class _TambahResepPageState extends State<TambahResepPage> {
   final List<XFile> _selectedImages = [];
   final _picker = ImagePicker();
   bool _isSaving = false;
+
+  bool get _isEditMode => widget.existingData != null;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_isEditMode) {
+      final d = widget.existingData!;
+      _namaCtrl.text    = (d['nama'] ?? '').toString();
+      _pembuatCtrl.text = (d['pembuat'] ?? '').toString();
+      _waktuCtrl.text   = (d['waktu'] ?? '').toString();
+      _videoCtrl.text   = (d['video_url'] ?? '').toString();
+      _kesulitan = (d['kesulitan'] ?? 'Mudah').toString();
+      _kategori  = (d['kategori'] ?? 'Sarapan').toString();
+
+      final bahan = (d['bahan'] as List?) ?? [];
+      if (bahan.isNotEmpty) {
+        _bahanCtrls.clear();
+        _bahanCtrls.addAll(bahan.map((b) => TextEditingController(text: b.toString())));
+      }
+
+      final langkah = (d['langkah'] as List?) ?? [];
+      if (langkah.isNotEmpty) {
+        _langkahCtrls.clear();
+        _langkahCtrls.addAll(langkah.map((l) => TextEditingController(text: l.toString())));
+      }
+    }
+  }
 
   Future<void> _pickImages(ImageSource source) async {
     try {
@@ -1327,21 +1400,37 @@ class _TambahResepPageState extends State<TambahResepPage> {
     setState(() => _isSaving = true);
 
     try {
-      await ApiService.createResep(
-        nama:      _namaCtrl.text.trim(),
-        pembuat:   _pembuatCtrl.text.trim(),
-        waktu:     _waktuCtrl.text.trim(),
-        kesulitan: _kesulitan,
-        kategori:  _kategori,
-        videoUrl:  _videoCtrl.text.trim().isEmpty ? null : _videoCtrl.text.trim(),
-        bahan:     _bahanCtrls.map((c) => c.text.trim()).where((s) => s.isNotEmpty).toList(),
-        langkah:   _langkahCtrls.map((c) => c.text.trim()).where((s) => s.isNotEmpty).toList(),
-        gambars:   _selectedImages, // ← List<XFile>, web-safe
-      );
-      widget.onSave(); // trigger reload di Beranda
+      if (_isEditMode) {
+        // ── MODE EDIT: kirim PUT, tanpa ubah foto (foto dikelola terpisah) ──
+        await ApiService.updateResep(
+          id:        widget.existingData!['id'],
+          nama:      _namaCtrl.text.trim(),
+          pembuat:   _pembuatCtrl.text.trim(),
+          waktu:     _waktuCtrl.text.trim(),
+          kesulitan: _kesulitan,
+          kategori:  _kategori,
+          videoUrl:  _videoCtrl.text.trim().isEmpty ? null : _videoCtrl.text.trim(),
+          bahan:     _bahanCtrls.map((c) => c.text.trim()).where((s) => s.isNotEmpty).toList(),
+          langkah:   _langkahCtrls.map((c) => c.text.trim()).where((s) => s.isNotEmpty).toList(),
+        );
+      } else {
+        // ── MODE TAMBAH ──
+        await ApiService.createResep(
+          nama:      _namaCtrl.text.trim(),
+          pembuat:   _pembuatCtrl.text.trim(),
+          waktu:     _waktuCtrl.text.trim(),
+          kesulitan: _kesulitan,
+          kategori:  _kategori,
+          videoUrl:  _videoCtrl.text.trim().isEmpty ? null : _videoCtrl.text.trim(),
+          bahan:     _bahanCtrls.map((c) => c.text.trim()).where((s) => s.isNotEmpty).toList(),
+          langkah:   _langkahCtrls.map((c) => c.text.trim()).where((s) => s.isNotEmpty).toList(),
+          gambars:   _selectedImages,
+        );
+      }
+      widget.onSave();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(appLanguage.t('recipe_added')),
+          content: Text(_isEditMode ? 'Resep berhasil diperbarui!' : appLanguage.t('recipe_added')),
           backgroundColor: Colors.green,
         ));
         Navigator.pop(context);
@@ -1368,9 +1457,13 @@ class _TambahResepPageState extends State<TambahResepPage> {
       'Cemilan':     appLanguage.t('snack'),
     };
 
+    // Pastikan _kesulitan/_kategori valid terhadap map (mencegah error dropdown saat data API tak sesuai)
+    if (!kesMap.containsKey(_kesulitan)) _kesulitan = 'Mudah';
+    if (!katMap.containsKey(_kategori))  _kategori  = 'Sarapan';
+
     return Scaffold(
       appBar: AppBar(
-        title: Text(appLanguage.t('add_recipe')),
+        title: Text(_isEditMode ? 'Edit Resep' : appLanguage.t('add_recipe')),
         actions: [
           TextButton(
             onPressed: _isSaving ? null : _save,
@@ -1389,79 +1482,110 @@ class _TambahResepPageState extends State<TambahResepPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // ── Image Picker ──
-              _label('📷 ${appLanguage.t('photo_recipe')}'),
-              const SizedBox(height: 4),
-              Text(appLanguage.t('max_images'),
-                  style: const TextStyle(fontSize: 12, color: Colors.grey)),
-              const SizedBox(height: 10),
-              SizedBox(
-                height: 112,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  children: [
-                    if (_selectedImages.length < 3)
-                      GestureDetector(
-                        onTap: _showSourceSheet,
-                        child: Container(
-                          width: 100, height: 100,
-                          margin: const EdgeInsets.only(right: 10),
-                          decoration: BoxDecoration(
-                            color: Colors.orange.shade50,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: Colors.orange.shade300, width: 2),
-                          ),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.add_photo_alternate,
-                                  color: Colors.orange.shade300, size: 32),
-                              const SizedBox(height: 4),
-                              Text(appLanguage.t('add_images'),
-                                  style: TextStyle(fontSize: 10, color: Colors.orange.shade400),
-                                  textAlign: TextAlign.center),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ..._selectedImages.asMap().entries.map((e) => Stack(children: [
-                      Container(
-                        margin: const EdgeInsets.only(right: 10),
-                        width: 100, height: 100,
-                        child: XFileThumbnail(
-                          file: e.value,
-                          width: 100, height: 100,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      Positioned(
-                        top: 4, right: 14,
-                        child: GestureDetector(
-                          onTap: () => _removeImage(e.key),
+              // ── Image Picker (hanya muncul di mode TAMBAH) ──
+              if (!_isEditMode) ...[
+                _label(appLanguage.t('photo_recipe')),
+                const SizedBox(height: 4),
+                Text(appLanguage.t('max_images'),
+                    style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                const SizedBox(height: 10),
+                SizedBox(
+                  height: 112,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    children: [
+                      if (_selectedImages.length < 3)
+                        GestureDetector(
+                          onTap: _showSourceSheet,
                           child: Container(
-                            padding: const EdgeInsets.all(4),
-                            decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
-                            child: const Icon(Icons.close, color: Colors.white, size: 12),
+                            width: 100, height: 100,
+                            margin: const EdgeInsets.only(right: 10),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.shade50,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.orange.shade300, width: 2),
+                            ),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.add_photo_alternate,
+                                    color: Colors.orange.shade300, size: 32),
+                                const SizedBox(height: 4),
+                                Text(appLanguage.t('add_images'),
+                                    style: TextStyle(fontSize: 10, color: Colors.orange.shade400),
+                                    textAlign: TextAlign.center),
+                              ],
+                            ),
                           ),
                         ),
-                      ),
-                      Positioned(
-                        bottom: 6, left: 6,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.5),
-                            borderRadius: BorderRadius.circular(8),
+                      ..._selectedImages.asMap().entries.map((e) => Stack(children: [
+                        Container(
+                          margin: const EdgeInsets.only(right: 10),
+                          width: 100, height: 100,
+                          child: XFileThumbnail(
+                            file: e.value,
+                            width: 100, height: 100,
+                            borderRadius: BorderRadius.circular(12),
                           ),
-                          child: Text('${e.key + 1}',
-                              style: const TextStyle(color: Colors.white, fontSize: 10)),
                         ),
-                      ),
-                    ])),
-                  ],
+                        Positioned(
+                          top: 4, right: 14,
+                          child: GestureDetector(
+                            onTap: () => _removeImage(e.key),
+                            child: Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
+                              child: const Icon(Icons.close, color: Colors.white, size: 12),
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          bottom: 6, left: 6,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.5),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text('${e.key + 1}',
+                                style: const TextStyle(color: Colors.white, fontSize: 10)),
+                          ),
+                        ),
+                      ])),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 20),
+                const SizedBox(height: 20),
+              ] else ...[
+                // ── Mode edit: tampilkan foto lama (read-only) ──
+                _label(appLanguage.t('photo_recipe')),
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 90,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    children: [
+                      ...(((widget.existingData!['gambars'] as List?) ?? []).map((g) => Container(
+                            margin: const EdgeInsets.only(right: 10),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: Image.network(
+                                g['url'] ?? '',
+                                width: 90, height: 90, fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => Container(
+                                    width: 90, height: 90, color: Colors.grey[300],
+                                    child: const Icon(Icons.image_not_supported)),
+                              ),
+                            ),
+                          ))),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text('Foto belum bisa diubah lewat halaman edit ini.',
+                    style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+                const SizedBox(height: 20),
+              ],
 
               // ── Basic fields ──
               _label(appLanguage.t('recipe_name')),
@@ -1475,7 +1599,7 @@ class _TambahResepPageState extends State<TambahResepPage> {
               const SizedBox(height: 14),
 
               // ── Video URL ──
-              _label('🎥 ${appLanguage.t('video_url')}'),
+              _label(appLanguage.t('video_url')),
               TextFormField(
                 controller: _videoCtrl,
                 keyboardType: TextInputType.url,
@@ -1547,7 +1671,7 @@ class _TambahResepPageState extends State<TambahResepPage> {
                   child: _isSaving
                       ? const SizedBox(width: 22, height: 22,
                           child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                      : Text(appLanguage.t('save'),
+                      : Text(_isEditMode ? 'Update Resep' : appLanguage.t('save'),
                           style: const TextStyle(
                               fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold)),
                 ),
@@ -1614,21 +1738,418 @@ class _TambahResepPageState extends State<TambahResepPage> {
   }
 }
 
-// ─── PLACEHOLDER PAGES ────────────────────────────────────────────────────────
-
-
-class HalamanProfil extends StatelessWidget {
+// ─── HALAMAN PROFIL ────────────────────────────────────────────────────────────
+class HalamanProfil extends StatefulWidget {
   const HalamanProfil({Key? key}) : super(key: key);
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text(appLanguage.t('profile'))),
-    body: Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-      const CircleAvatar(radius: 48, backgroundColor: Colors.orange,
-          child: Icon(Icons.person, size: 56, color: Colors.white)),
-      const SizedBox(height: 16),
-      const Text('Chef Anonim', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-    ])),
-  );
+  State<HalamanProfil> createState() => _HalamanProfilState();
+}
+
+class _HalamanProfilState extends State<HalamanProfil> {
+  // ── State user ──────────────────────────────────────────────────────────
+  Map<String, dynamic>? _user;
+  bool    _isLoadingUser = true;
+  String? _userError;
+
+  // ── State resep saya ───────────────────────────────────────────────────
+  List<Map<String, dynamic>> _myRecipes = [];
+  bool    _isLoadingRecipes = true;
+  String? _recipesError;
+
+  // ── Upload avatar ──────────────────────────────────────────────────────
+  final _picker = ImagePicker();
+  bool _isUploadingAvatar = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAll();
+  }
+
+  Future<void> _loadAll() async {
+    await Future.wait([_loadUser(), _loadMyRecipes()]);
+  }
+
+  Future<void> _loadUser() async {
+    setState(() { _isLoadingUser = true; _userError = null; });
+    try {
+      final data = await ApiService.getCurrentUser();
+      setState(() { _user = data; _isLoadingUser = false; });
+    } catch (e) {
+      setState(() { _isLoadingUser = false; _userError = 'Gagal memuat profil.'; });
+    }
+  }
+
+  Future<void> _loadMyRecipes() async {
+    setState(() { _isLoadingRecipes = true; _recipesError = null; });
+    try {
+      final data = await ApiService.getMyResep();
+      setState(() { _myRecipes = data; _isLoadingRecipes = false; });
+    } catch (e) {
+      setState(() { _isLoadingRecipes = false; _recipesError = 'Gagal memuat resep kamu.'; });
+    }
+  }
+
+  Future<void> _pickAndUploadAvatar() async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (_) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const SizedBox(height: 12),
+          Container(width: 40, height: 4,
+              decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2))),
+          const SizedBox(height: 16),
+          const Text('Ganti Foto Profil', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          ListTile(
+            leading: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(10)),
+              child: const Icon(Icons.photo_library, color: Colors.orange),
+            ),
+            title: Text(appLanguage.t('from_gallery')),
+            onTap: () => Navigator.pop(context, ImageSource.gallery),
+          ),
+          ListTile(
+            leading: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(10)),
+              child: const Icon(Icons.camera_alt, color: Colors.blue),
+            ),
+            title: Text(appLanguage.t('from_camera')),
+            onTap: () => Navigator.pop(context, ImageSource.camera),
+          ),
+          const SizedBox(height: 16),
+        ]),
+      ),
+    );
+    if (source == null) return;
+
+    final picked = await _picker.pickImage(source: source, imageQuality: 80);
+    if (picked == null) return;
+
+    setState(() => _isUploadingAvatar = true);
+    try {
+      final updatedUser = await ApiService.uploadAvatar(picked);
+      setState(() => _user = updatedUser);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Foto profil berhasil diperbarui!'), backgroundColor: Colors.green),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Gagal mengunggah foto.'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isUploadingAvatar = false);
+    }
+  }
+
+  void _goToEdit(Map<String, dynamic> resep) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => TambahResepPage(
+          existingData: resep,
+          onSave: _loadMyRecipes,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmDelete(Map<String, dynamic> resep) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Hapus Resep?'),
+        content: Text('Resep "${resep['nama']}" akan dihapus permanen. Tindakan ini tidak bisa dibatalkan.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Batal')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Hapus', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+
+    try {
+      await ApiService.deleteResep(resep['id']);
+      setState(() => _myRecipes.removeWhere((r) => r['id'] == resep['id']));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Resep berhasil dihapus.'), backgroundColor: Colors.green),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Gagal menghapus resep.'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final username  = _user?['name']       ?? '...';
+    final email     = _user?['email']      ?? '';
+    final avatarUrl = _user?['avatar_url'] as String?;
+
+    return Scaffold(
+      appBar: AppBar(title: Text(appLanguage.t('profile'))),
+      body: RefreshIndicator(
+        color: Colors.orange,
+        onRefresh: _loadAll,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ══════════ SECTION 1: PROFIL ══════════
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 24),
+                color: Colors.white,
+                child: _isLoadingUser
+                    ? const Center(child: CircularProgressIndicator(color: Colors.orange))
+                    : _userError != null
+                        ? Column(children: [
+                            Icon(Icons.wifi_off, size: 40, color: Colors.grey[400]),
+                            const SizedBox(height: 8),
+                            Text(_userError!, style: const TextStyle(color: Colors.grey)),
+                            const SizedBox(height: 8),
+                            TextButton(onPressed: _loadUser, child: const Text('Coba Lagi')),
+                          ])
+                        : Column(
+                            children: [
+                              Stack(children: [
+                                _isUploadingAvatar
+                                    ? const CircleAvatar(
+                                        radius: 48,
+                                        backgroundColor: Colors.orange,
+                                        child: SizedBox(
+                                          width: 28, height: 28,
+                                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                        ),
+                                      )
+                                    : (avatarUrl != null
+                                        ? CircleAvatar(
+                                            radius: 48,
+                                            backgroundColor: Colors.orange.shade100,
+                                            backgroundImage: NetworkImage(avatarUrl),
+                                          )
+                                        : CircleAvatar(
+                                            radius: 48,
+                                            backgroundColor: Colors.orange,
+                                            child: Text(
+                                              username.isNotEmpty ? username[0].toUpperCase() : '?',
+                                              style: const TextStyle(
+                                                  fontSize: 36, color: Colors.white, fontWeight: FontWeight.bold),
+                                            ),
+                                          )),
+                                Positioned(
+                                  bottom: 0, right: 0,
+                                  child: GestureDetector(
+                                    onTap: _isUploadingAvatar ? null : _pickAndUploadAvatar,
+                                    child: Container(
+                                      padding: const EdgeInsets.all(6),
+                                      decoration: BoxDecoration(
+                                        color: Colors.orange,
+                                        shape: BoxShape.circle,
+                                        border: Border.all(color: Colors.white, width: 2),
+                                      ),
+                                      child: const Icon(Icons.camera_alt, color: Colors.white, size: 16),
+                                    ),
+                                  ),
+                                ),
+                              ]),
+                              const SizedBox(height: 16),
+                              Text(username,
+                                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                              const SizedBox(height: 4),
+                              Text(email, style: TextStyle(fontSize: 13, color: Colors.grey[600])),
+                            ],
+                          ),
+              ),
+
+              Container(height: 8, color: Colors.grey[100]),
+
+              // ══════════ SECTION 2: RESEP SAYA ══════════
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      const Text('Resep Saya',
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      const SizedBox(width: 8),
+                      if (!_isLoadingRecipes)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                              color: Colors.orange.shade100, borderRadius: BorderRadius.circular(12)),
+                          child: Text('${_myRecipes.length}',
+                              style: const TextStyle(
+                                  color: Colors.orange, fontWeight: FontWeight.bold, fontSize: 12)),
+                        ),
+                      const Spacer(),
+                      IconButton(
+                        icon: const Icon(Icons.add_circle, color: Colors.orange),
+                        tooltip: appLanguage.t('add_recipe'),
+                        onPressed: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => TambahResepPage(onSave: _loadMyRecipes),
+                          ),
+                        ),
+                      ),
+                    ]),
+                    const SizedBox(height: 8),
+
+                    if (_isLoadingRecipes)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 40),
+                        child: Center(child: CircularProgressIndicator(color: Colors.orange)),
+                      )
+                    else if (_recipesError != null)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 40),
+                        child: Center(child: Column(children: [
+                          Icon(Icons.wifi_off, size: 48, color: Colors.grey[400]),
+                          const SizedBox(height: 8),
+                          Text(_recipesError!, style: const TextStyle(color: Colors.grey)),
+                          const SizedBox(height: 8),
+                          TextButton(onPressed: _loadMyRecipes, child: const Text('Coba Lagi')),
+                        ])),
+                      )
+                    else if (_myRecipes.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 40),
+                        child: Center(child: Column(children: [
+                          Icon(Icons.menu_book_outlined, size: 56, color: Colors.grey[300]),
+                          const SizedBox(height: 12),
+                          Text('Kamu belum menambahkan resep.',
+                              style: TextStyle(color: Colors.grey[500])),
+                        ])),
+                      )
+                    else
+                      ..._myRecipes.map((r) => _KartuResepSaya(
+                            data: r,
+                            onEdit: () => _goToEdit(r),
+                            onDelete: () => _confirmDelete(r),
+                          )),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── KARTU RESEP SAYA (dengan tombol Edit & Hapus) ───────────────────────────
+class _KartuResepSaya extends StatelessWidget {
+  final Map<String, dynamic> data;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+  const _KartuResepSaya({required this.data, required this.onEdit, required this.onDelete});
+
+  @override
+  Widget build(BuildContext context) {
+    final gambars  = (data['gambars'] as List?) ?? [];
+    final thumbUrl = gambars.isNotEmpty ? (gambars[0]['url'] ?? '') : '';
+    final avg      = (data['average_rating'] ?? 0).toDouble();
+    final count    = data['rating_count'] ?? 0;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [BoxShadow(
+            color: Colors.grey.withOpacity(0.1), spreadRadius: 1, blurRadius: 4, offset: const Offset(0, 2))],
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () => Navigator.push(
+          context, MaterialPageRoute(builder: (_) => DetailResepApi(data: data))),
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Row(children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: thumbUrl.isNotEmpty
+                  ? Image.network(thumbUrl, width: 80, height: 80, fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => _placeholder())
+                  : _placeholder(),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(data['nama'] ?? '',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                  const SizedBox(height: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.orange.shade200),
+                    ),
+                    child: Text(data['kategori'] ?? '',
+                        style: const TextStyle(fontSize: 10, color: Colors.orange, fontWeight: FontWeight.bold)),
+                  ),
+                  const SizedBox(height: 6),
+                  Row(children: [
+                    ...List.generate(5, (i) => Icon(
+                          i < avg.round() ? Icons.star : Icons.star_border,
+                          color: Colors.amber, size: 13)),
+                    const SizedBox(width: 4),
+                    Text(count == 0 ? '-' : avg.toStringAsFixed(1),
+                        style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                  ]),
+                ],
+              ),
+            ),
+            Column(children: [
+              IconButton(
+                icon: const Icon(Icons.edit_outlined, color: Colors.blue, size: 20),
+                onPressed: onEdit,
+                tooltip: 'Edit',
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+              ),
+              IconButton(
+                icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                onPressed: onDelete,
+                tooltip: 'Hapus',
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+              ),
+            ]),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Widget _placeholder() => Container(
+      width: 80, height: 80, color: Colors.grey[300],
+      child: const Icon(Icons.image_not_supported, size: 24));
 }
 
 // ─── SETTINGS ─────────────────────────────────────────────────────────────────
@@ -1711,11 +2232,8 @@ class _HalamanSettingsState extends State<HalamanSettings> {
             leading: const Icon(Icons.logout, color: Colors.red),
             title: const Text('Keluar (Logout)', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
             onTap: () async {
-              // 1. Hapus token dari memori HP
               await ApiService.hapusToken();
-              
-              // 2. Arahkan balik ke halaman login dan hapus riwayat navigasi
-              if (mounted) {
+              if (context.mounted) {
                 Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
               }
             },

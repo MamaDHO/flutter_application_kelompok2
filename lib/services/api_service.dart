@@ -62,7 +62,35 @@ class ApiService {
     return false;
   }
 
-  // ── GET semua resep ───────────────────────────────────────────────────────
+  // ── PROFIL USER ───────────────────────────────────────────────────────────
+  // GET /api/user — data user yang sedang login (butuh token)
+  static Future<Map<String, dynamic>> getCurrentUser() async {
+    final response = await http.get(Uri.parse('$baseUrl/user'), headers: await _getHeaders());
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    }
+    throw Exception('Gagal memuat profil (${response.statusCode})');
+  }
+
+  // POST /api/user/avatar — upload/ganti foto profil (multipart, web-safe)
+  static Future<Map<String, dynamic>> uploadAvatar(XFile file) async {
+    final request = http.MultipartRequest('POST', Uri.parse('$baseUrl/user/avatar'));
+    request.headers.addAll(await _getHeaders());
+
+    request.files.add(http.MultipartFile.fromBytes(
+      'avatar',
+      await file.readAsBytes(),
+      filename: file.name.isNotEmpty ? file.name : 'avatar.jpg',
+    ));
+
+    final response = await http.Response.fromStream(await request.send());
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body)['data'] as Map<String, dynamic>;
+    }
+    throw Exception('Gagal upload foto profil (${response.statusCode}): ${response.body}');
+  }
+
+  // ── GET semua resep (publik, untuk Beranda) ────────────────────────────────
   static Future<List<Map<String, dynamic>>> getResep({String? kategori, String? search}) async {
     final params = <String, String>{};
     if (kategori != null && kategori != 'all') params['kategori'] = kategori;
@@ -75,6 +103,15 @@ class ApiService {
       return List<Map<String, dynamic>>.from(jsonDecode(response.body)['data']);
     }
     throw Exception('Gagal memuat resep');
+  }
+
+  // ── GET resep milik user yang login (untuk halaman Profil) ─────────────────
+  static Future<List<Map<String, dynamic>>> getMyResep() async {
+    final response = await http.get(Uri.parse('$baseUrl/resep-saya'), headers: await _getHeaders());
+    if (response.statusCode == 200) {
+      return List<Map<String, dynamic>>.from(jsonDecode(response.body)['data']);
+    }
+    throw Exception('Gagal memuat resep saya (${response.statusCode})');
   }
 
   // ── POST resep baru ───────────────────────────────────────────────────────
@@ -103,6 +140,39 @@ class ApiService {
     final response = await http.Response.fromStream(await request.send());
     if (response.statusCode == 201) return jsonDecode(response.body)['data'];
     throw Exception('Gagal menyimpan: ${response.body}');
+  }
+
+  // ── PUT update resep (hanya milik sendiri, dicek di backend) ───────────────
+  static Future<Map<String, dynamic>> updateResep({
+    required int id,
+    required String nama, required String pembuat, required String waktu,
+    required String kesulitan, required String kategori, String? videoUrl,
+    required List<String> bahan, required List<String> langkah,
+  }) async {
+    final headers = await _getHeaders();
+    headers['Content-Type'] = 'application/json';
+
+    final response = await http.put(
+      Uri.parse('$baseUrl/resep/$id'),
+      headers: headers,
+      body: jsonEncode({
+        'nama': nama, 'pembuat': pembuat, 'waktu': waktu,
+        'kesulitan': kesulitan, 'kategori': kategori,
+        if (videoUrl != null) 'video_url': videoUrl,
+        'bahan': bahan, 'langkah': langkah,
+      }),
+    );
+
+    if (response.statusCode == 200) return jsonDecode(response.body)['data'];
+    if (response.statusCode == 403) throw Exception('Kamu tidak punya izin mengubah resep ini.');
+    throw Exception('Gagal mengubah resep (${response.statusCode}): ${response.body}');
+  }
+
+  // ── DELETE resep (hanya milik sendiri, dicek di backend) ───────────────────
+  static Future<void> deleteResep(int id) async {
+    final response = await http.delete(Uri.parse('$baseUrl/resep/$id'), headers: await _getHeaders());
+    if (response.statusCode == 403) throw Exception('Kamu tidak punya izin menghapus resep ini.');
+    if (response.statusCode != 200) throw Exception('Gagal menghapus resep (${response.statusCode})');
   }
 
   // ── POST rating & komentar ────────────────────────────────────────────────
