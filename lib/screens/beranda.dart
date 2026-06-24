@@ -76,9 +76,6 @@ class _BerandaState extends State<Beranda> {
             ),
           ],
         ),
-        actions: [
-          IconButton(icon: const Icon(Icons.notifications_none), onPressed: () {}),
-        ],
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => Navigator.push(
