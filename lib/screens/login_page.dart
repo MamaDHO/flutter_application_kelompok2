@@ -61,7 +61,7 @@ class _LoginPageState extends State<LoginPage> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text('🍳', style: TextStyle(fontSize: 60)),
+                const Icon(Icons.restaurant_menu, size: 60, color: Colors.orange),
                 const SizedBox(height: 16),
                 const Text(
                   'Masuk ke DapurKita', 
