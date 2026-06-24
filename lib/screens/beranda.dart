@@ -58,14 +58,23 @@ class _BerandaState extends State<Beranda> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(appLanguage.t('app_title')),
         backgroundColor: Colors.orange,
-        iconTheme: const IconThemeData(color: Colors.white),        
-        actionsIconTheme: const IconThemeData(color: Colors.white), 
-        titleTextStyle: const TextStyle(                            
-          color: Colors.white,
-          fontSize: 20,
-          fontWeight: FontWeight.bold,
+        iconTheme: const IconThemeData(color: Colors.white),
+        actionsIconTheme: const IconThemeData(color: Colors.white),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.restaurant_menu, color: Colors.white, size: 26),
+            const SizedBox(width: 8),
+            Text(
+              appLanguage.t('app_title'),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
         ),
         actions: [
           IconButton(icon: const Icon(Icons.notifications_none), onPressed: () {}),

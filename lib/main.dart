@@ -22,7 +22,7 @@ class AppLanguage extends ChangeNotifier {
 
   static const Map<String, Map<String, String>> _translations = {
     'id': {
-      'app_title': '🍳 DapurKita',
+      'app_title': 'DapurKita',
       'hello_chef': 'Halo, Chef!',
       'what_to_cook': 'Masak apa hari ini chef?',
       'search_hint': 'Cari resep favoritmu...',
@@ -84,7 +84,7 @@ class AppLanguage extends ChangeNotifier {
       'saving': 'Menyimpan...',
     },
     'en': {
-      'app_title': '🍳 DapurKita',
+      'app_title': 'DapurKita',
       'hello_chef': 'Hello, Chef!',
       'what_to_cook': 'What are we cooking today?',
       'search_hint': 'Search your favorite recipe...',
